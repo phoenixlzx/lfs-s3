@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
@@ -76,7 +77,19 @@ var eventHandlers = map[string]eventHandler{
 	"terminate": handleTerminate,
 }
 
+func loadEnv() error {
+	err := godotenv.Load(".env");
+	if err != nil {
+		return fmt.Errorf("Error loading .env file: %v", err)
+	}
+	return nil
+}
+
 func Serve(stdin io.Reader, stdout, stderr io.Writer) {
+	if err := loadEnv(); err != nil {
+		fmt.Fprintf(stderr, "%s\n", err)
+		return
+	}
 	scanner := bufio.NewScanner(stdin)
 	writer := io.Writer(stdout)
 	s3Options := S3Options{
@@ -105,16 +118,16 @@ func Serve(stdin io.Reader, stdout, stderr io.Writer) {
 }
 
 func createS3Client() (*s3.Client, error) {
-	godotenv.Load(".env")
 	region := os.Getenv("AWS_REGION")
 	endpointURL := os.Getenv("AWS_S3_ENDPOINT")
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithSharedConfigProfile(os.Getenv("AWS_PROFILE")),
 		config.WithRegion(region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), "")),
 		config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
 			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				if (endpointURL == "" || region == "") {
+				if endpointURL == "" || region == "" {
 					// fallback to default endpoint configuration
 					return aws.Endpoint{}, &aws.EndpointNotFoundError{}
 				} else {
@@ -134,6 +147,7 @@ func createS3Client() (*s3.Client, error) {
 		o.UsePathStyle = usePathStyle
 	}), nil
 }
+
 
 func handleInit(S3 *S3Options, req api.Request) {
 	var err error
